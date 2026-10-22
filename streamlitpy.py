@@ -1,5 +1,4 @@
 
-import re
 from pathlib import Path
 
 import joblib
@@ -7,13 +6,35 @@ import pandas as pd
 import streamlit as st
 
 
+# ==========================================
+# PAGE CONFIGURATION
+# ==========================================
 st.set_page_config(
-    page_title="Starbucks Beverage Predictor",
+    page_title="From Beans to Bytes",
     page_icon="☕",
     layout="centered"
 )
 
-MODEL_PATH = Path(__file__).parent / "starbucks_decision_tree.pkl"
+
+# ==========================================
+# HEADER
+# ==========================================
+st.title("☕ From Beans to Bytes")
+st.subheader("Starbucks Beverage Category Prediction")
+
+st.write(
+    "Enter the nutritional measurements below "
+    "to predict the beverage category."
+)
+
+
+# ==========================================
+# LOAD MODEL
+# ==========================================
+MODEL_PATH = (
+    Path(__file__).parent
+    / "starbucks_decision_tree.pkl"
+)
 
 
 @st.cache_resource
@@ -21,89 +42,93 @@ def load_model():
     return joblib.load(MODEL_PATH)
 
 
-def clean_column_name(column):
-    column = str(column).strip().lower()
-    column = re.sub(r"[^a-z0-9]+", "_", column)
-    return column.strip("_")
-
-
-st.title("☕ My Starbucks Decision Tree Model")
-st.write("Enter the nutritional values to predict the beverage category.")
-
-
 if not MODEL_PATH.exists():
-    st.error("Model file not found.")
+    st.error(
+        "Model file not found. Please upload "
+        "starbucks_decision_tree.pkl to the same folder."
+    )
     st.stop()
 
 try:
     model = load_model()
     preprocessor = model.named_steps["preprocessor"]
-    classifier = model.named_steps["classifier"]
     expected_columns = list(preprocessor.feature_names_in_)
 except Exception as e:
     st.error(f"Could not load model: {e}")
     st.stop()
 
 
-# Show only the numerical features as simple input fields
+# ==========================================
+# GET MODEL FEATURES
+# ==========================================
 numeric_features = []
+categorical_features = []
+categorical_defaults = {}
 
 for name, transformer, columns in preprocessor.transformers_:
     if name == "numeric":
         numeric_features = list(columns)
-        break
 
-if not numeric_features:
-    st.error("No numerical input features found in the model.")
-    st.stop()
+    elif name == "categorical":
+        categorical_features = list(columns)
+        imputer = transformer.named_steps.get("imputer")
+
+        if hasattr(imputer, "statistics_"):
+            categorical_defaults = dict(
+                zip(columns, imputer.statistics_)
+            )
 
 
-st.subheader("Beverage Measurements")
+# ==========================================
+# INPUT FORM
+# ==========================================
+st.markdown("### Beverage Measurements")
 
 with st.form("prediction_form"):
-    values = {}
+    input_values = {}
 
     for col in numeric_features:
-        label = col.replace("_", " ").title()
-        values[col] = st.number_input(
-            label,
+        input_values[col] = st.number_input(
+            col.replace("_", " ").title(),
             min_value=0.0,
             value=0.0,
             step=0.1,
-            format="%.2f"
+            key=f"input_{col}"
         )
 
-    submitted = st.form_submit_button("Predict Beverage Category")
+    # Use training defaults for categorical features
+    for col in categorical_features:
+        input_values[col] = categorical_defaults.get(col, "")
 
+    submitted = st.form_submit_button(
+        "Predict Beverage Category",
+        type="primary",
+        use_container_width=True
+    )
+
+
+# ==========================================
+# PREDICTION
+# ==========================================
 if submitted:
-    # Build a row containing all features expected by the model.
-    # Categorical features use their most frequent training value.
-    input_data = {}
-
-    for name, transformer, columns in preprocessor.transformers_:
-        if name == "numeric":
-            for col in columns:
-                input_data[col] = values[col]
-
-        elif name == "categorical":
-            imputer = transformer.named_steps.get("imputer")
-
-            if imputer is not None and hasattr(imputer, "statistics_"):
-                for col, default_value in zip(columns, imputer.statistics_):
-                    input_data[col] = default_value
-            else:
-                for col in columns:
-                    input_data[col] = ""
-
     input_df = pd.DataFrame(
-        [[input_data[col] for col in expected_columns]],
+        [[input_values[col] for col in expected_columns]],
         columns=expected_columns
     )
 
     try:
         prediction = model.predict(input_df)[0]
 
-        st.success(f"Predicted Beverage Category: **{prediction}**")
+        st.success(
+            f"Predicted Beverage Category: {prediction}"
+        )
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
+
+
+# ==========================================
+# FOOTER
+# ==========================================
+st.divider()
+st.caption("From Beans to Bytes | Starbucks Data Analysis Project")
