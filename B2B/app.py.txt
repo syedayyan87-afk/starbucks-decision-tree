@@ -1,0 +1,102 @@
+
+import streamlit as st
+import pandas as pd
+import joblib
+import os
+
+st.set_page_config(
+    page_title="Starbucks Decision Tree",
+    page_icon="☕",
+    layout="wide"
+)
+
+st.title("☕ From Beans to Bytes")
+st.subheader("Starbucks Beverage Prediction")
+st.write(
+    "Upload a CSV file to predict beverage categories "
+    "using the trained Decision Tree model."
+)
+
+MODEL_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "starbucks_decision_tree.pkl"
+)
+
+@st.cache_resource
+def load_model():
+    return joblib.load(MODEL_PATH)
+
+try:
+    model = load_model()
+except Exception as e:
+    st.error(f"Could not load model: {e}")
+    st.stop()
+
+st.success("Decision Tree model loaded successfully!")
+
+uploaded_file = st.file_uploader(
+    "Upload Starbucks CSV",
+    type=["csv"]
+)
+
+if uploaded_file is not None:
+    try:
+        input_df = pd.read_csv(uploaded_file)
+
+        st.write("### Uploaded Dataset")
+        st.dataframe(input_df.head())
+
+        # Retrieve the original training feature columns
+        preprocessor = model.named_steps["preprocessor"]
+        expected_columns = list(
+            preprocessor.feature_names_in_
+        )
+
+        # Remove the target if the uploaded file contains it
+        target_col = model.named_steps[
+            "classifier"
+        ].classes_
+
+        # Validate that all required input columns exist
+        missing = [
+            col for col in expected_columns
+            if col not in input_df.columns
+        ]
+
+        if missing:
+            st.error(
+                "Missing required columns: "
+                + ", ".join(missing)
+            )
+            st.stop()
+
+        X = input_df[expected_columns].copy()
+
+        # Match the boolean conversion used during training
+        for col in X.select_dtypes(
+            include=["bool"]
+        ).columns:
+            X[col] = X[col].astype(str)
+
+        if st.button("Predict Beverage Categories"):
+            predictions = model.predict(X)
+
+            results = input_df.copy()
+            results["predicted_category"] = predictions
+
+            st.write("### Prediction Results")
+            st.dataframe(results)
+
+            csv = results.to_csv(
+                index=False
+            ).encode("utf-8")
+
+            st.download_button(
+                "Download Predictions CSV",
+                data=csv,
+                file_name="starbucks_predictions.csv",
+                mime="text/csv"
+            )
+
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
