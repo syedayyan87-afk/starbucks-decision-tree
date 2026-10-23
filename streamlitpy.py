@@ -6,7 +6,7 @@ import streamlit as st
 
 
 # ==========================================
-# PAGE CONFIGURATION & COLOURFUL UI STYLING
+# PAGE CONFIGURATION & CUSTOM STYLING
 # ==========================================
 st.set_page_config(
     page_title="From Beans to Bytes",
@@ -14,64 +14,31 @@ st.set_page_config(
     layout="centered"
 )
 
-# Vibrant & Colourful Custom CSS
+# Custom Starbucks Green UI Styling
 st.markdown("""
     <style>
-    /* Background Gradient */
-    .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%);
-    }
-
-    /* Gradient Title */
     .main-title {
-        background: linear-gradient(45deg, #00704A, #10b981, #3b82f6);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 40px;
-        font-weight: 800;
+        color: #00704A;
+        font-size: 38px;
+        font-weight: bold;
         text-align: center;
         margin-bottom: 0px;
     }
-    
     .sub-title {
-        color: #4b5563;
+        color: #555555;
         font-size: 18px;
         text-align: center;
         margin-bottom: 25px;
-        font-weight: 600;
     }
-
-    /* Stylish Colourful Predict Button */
     .stButton > button {
-        background: linear-gradient(135deg, #00704A 0%, #10b981 100%);
+        background-color: #00704A;
         color: white;
-        border-radius: 12px;
+        border-radius: 8px;
         font-weight: bold;
-        font-size: 18px;
-        padding: 0.75rem 1.5rem;
-        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
-        border: none;
-        transition: all 0.3s ease;
     }
-    
     .stButton > button:hover {
-        background: linear-gradient(135deg, #059669 0%, #047857 100%);
-        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
-        transform: translateY(-2px);
-    }
-
-    /* Form Card Styling */
-    div[data-testid="stForm"] {
-        background: #ffffff;
-        padding: 30px;
-        border-radius: 20px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-        border: 1px solid #e5e7eb;
-    }
-
-    /* Headers inside form */
-    h3, h4 {
-        color: #1f2937;
+        background-color: #005538;
+        color: white;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -209,6 +176,20 @@ if submitted:
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
+
+
+    # Try loading csv if available in repo
+    csv_path = Path(__file__).parent / "starbucks.csv"
+    if csv_path.exists():
+        try:
+            df_eda = pd.read_csv(csv_path)
+            st.subheader("Top Highest Calorie Drinks Sample")
+            if "Calories" in df_eda.columns and "Beverage" in df_eda.columns:
+                st.dataframe(df_eda.nlargest(5, "Calories")[["Beverage", "Calories"]], use_container_width=True)
+        except Exception:
+            pass
+    else:
+        st.info("Tip: You can upload your dataset CSV file to GitHub as `starbucks.csv` to display raw data insights here.")
 
 
 # ==========================================
