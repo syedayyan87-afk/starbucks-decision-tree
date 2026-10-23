@@ -25,12 +25,7 @@ st.markdown("""
         font-size: 38px;
         font-weight: 800;
         text-align: center;
-    }
-    .sub-title {
-        color: #9ca3af;
-        font-size: 16px;
-        text-align: center;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
     }
     .stButton > button {
         background: linear-gradient(135deg, #00704A 0%, #10b981 100%);
@@ -45,7 +40,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">☕ Starbucks Customizer & Predictor</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Choose your preferred input style: Sliders or Manual Typing</div>', unsafe_allow_html=True)
 st.divider()
 
 # ==========================================
@@ -102,7 +96,6 @@ if categorical_features:
 
 if numeric_features:
     st.markdown("### ⚙️ Select Input Method for Nutrition:")
-    # User ko choose karne ka option ke slider chahiye ya manual text box
     input_mode = st.radio(
         "Choose Mode:",
         ["Sliders 🎛️", "Manual Typing ⌨️"],
@@ -164,6 +157,3 @@ if submitted:
 
     except Exception as e:
         st.error(f"Prediction fail ho gayi: {e}")
-
-st.divider()
-st.caption("✨ Built with Streamlit | Sliders & Manual Mode Integrated")
