@@ -1,67 +1,64 @@
 from pathlib import Path
-
 import joblib
 import pandas as pd
 import streamlit as st
 
-
 # ==========================================
-# PAGE CONFIGURATION & CUSTOM STYLING
+# PAGE CONFIGURATION & STYLING
 # ==========================================
 st.set_page_config(
-    page_title="From Beans to Bytes",
+    page_title="Starbucks Beverage Customizer",
     page_icon="☕",
     layout="centered"
 )
 
-# Custom Starbucks Green UI Styling
 st.markdown("""
     <style>
+    .stApp {
+        background-color: #0e1117;
+        color: #ffffff;
+    }
     .main-title {
-        color: #00704A;
+        background: linear-gradient(45deg, #00704A, #10b981);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         font-size: 38px;
-        font-weight: bold;
+        font-weight: 800;
         text-align: center;
-        margin-bottom: 0px;
     }
     .sub-title {
-        color: #555555;
-        font-size: 18px;
+        color: #9ca3af;
+        font-size: 16px;
         text-align: center;
         margin-bottom: 25px;
     }
     .stButton > button {
-        background-color: #00704A;
+        background: linear-gradient(135deg, #00704A 0%, #10b981 100%);
         color: white;
-        border-radius: 8px;
+        border-radius: 10px;
         font-weight: bold;
-    }
-    .stButton > button:hover {
-        background-color: #005538;
-        color: white;
+        font-size: 16px;
+        width: 100%;
+        padding: 0.6rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Header Section
-st.markdown('<div class="main-title">☕ From Beans to Bytes</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Starbucks Beverage Prediction & Analysis App</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">☕ Starbucks Customizer & Predictor</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Choose your preferred input style: Sliders or Manual Typing</div>', unsafe_allow_html=True)
 st.divider()
-
 
 # ==========================================
 # LOAD MODEL
 # ==========================================
 MODEL_PATH = Path(__file__).parent / "starbucks_decision_tree.pkl"
 
-
 @st.cache_resource
 def load_model(path):
     return joblib.load(path)
 
-
 if not MODEL_PATH.exists():
-    st.error("Trained model file ('starbucks_decision_tree.pkl') was not found in the repository.")
+    st.error("Model file (.pkl) nahi mili GitHub repository mein!")
     st.stop()
 
 try:
@@ -70,9 +67,8 @@ try:
     classifier = model.named_steps["classifier"]
     expected_columns = list(preprocessor.feature_names_in_)
 except Exception as e:
-    st.error(f"Model loading failed: {e}")
+    st.error(f"Model load hone mein masla hua: {e}")
     st.stop()
-
 
 # ==========================================
 # IDENTIFY FEATURE TYPES
@@ -89,55 +85,56 @@ for name, transformer, columns in preprocessor.transformers_:
         encoder = transformer.named_steps.get("encoder")
         if encoder is not None and hasattr(encoder, "categories_"):
             for col, options in zip(columns, encoder.categories_):
-                categorical_options[col] = [
-                    value for value in options if pd.notna(value)
-                ]
-
+                categorical_options[col] = [val for val in options if pd.notna(val)]
 
 # ==========================================
-# USER INPUT FORM (UI)
+# USER INPUT INTERFACE
 # ==========================================
-st.markdown("### 📝 Enter Beverage Measurements")
+input_values = {}
 
-with st.form("beverage_form"):
-    input_values = {}
+if categorical_features:
+    st.markdown("### 🏷️ Beverage Category:")
+    for col in categorical_features:
+        label = col.replace("_", " ").title()
+        options = categorical_options.get(col, [])
+        if options:
+            input_values[col] = st.selectbox(label, options=options, key=f"cat_{col}")
 
-    if numeric_features:
-        st.markdown("#### 📊 Nutritional Information")
-        for col in numeric_features:
-            label = col.replace("_", " ").title()
-            input_values[col] = st.number_input(
-                label,
+if numeric_features:
+    st.markdown("### ⚙️ Select Input Method for Nutrition:")
+    # User ko choose karne ka option ke slider chahiye ya manual text box
+    input_mode = st.radio(
+        "Choose Mode:",
+        ["Sliders 🎛️", "Manual Typing ⌨️"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    
+    st.markdown("---")
+
+    for col in numeric_features:
+        label = col.replace("_", " ").title()
+        
+        if input_mode == "Sliders 🎛️":
+            input_values[col] = st.slider(
+                f"{label}:",
                 min_value=0.0,
-                value=0.0,
-                step=0.1,
+                max_value=500.0,
+                value=20.0,
+                step=1.0,
+                key=f"slider_{col}"
+            )
+        else:
+            input_values[col] = st.number_input(
+                f"{label}:",
+                min_value=0.0,
+                value=20.0,
+                step=1.0,
                 key=f"num_{col}"
             )
 
-    if categorical_features:
-        st.markdown("#### 🏷️ Beverage Details")
-        for col in categorical_features:
-            label = col.replace("_", " ").title()
-            options = categorical_options.get(col, [])
-
-            if options:
-                selected = st.selectbox(
-                    label,
-                    options=options,
-                    key=f"cat_{col}"
-                )
-                input_values[col] = selected
-            else:
-                input_values[col] = st.text_input(
-                    label,
-                    key=f"text_{col}"
-                )
-
-    submitted = st.form_submit_button(
-        "🚀 Predict Beverage Category",
-        use_container_width=True
-    )
-
+st.divider()
+submitted = st.button("🚀 Predict Beverage Details")
 
 # ==========================================
 # PREDICTION LOGIC
@@ -151,49 +148,22 @@ if submitted:
     try:
         prediction = model.predict(input_df)[0]
         
-        st.success(f"🎉 **Predicted Category:** {prediction}")
+        st.success(f"🎉 **Prediction Result:** {prediction}")
 
         if hasattr(model, "predict_proba"):
             probabilities = model.predict_proba(input_df)[0]
-
-            st.metric(
-                label="Model Confidence",
-                value=f"{probabilities.max() * 100:.1f}%"
-            )
+            st.metric(label="Model Confidence", value=f"{probabilities.max() * 100:.1f}%")
 
             probability_df = pd.DataFrame({
                 "Category": classifier.classes_,
                 "Probability": probabilities
-            }).sort_values(
-                "Probability",
-                ascending=False
-            )
+            }).sort_values("Probability", ascending=False)
 
-            st.markdown("### 📈 Category Probabilities Breakdown")
-            st.bar_chart(
-                probability_df.set_index("Category")["Probability"]
-            )
+            st.markdown("### 📈 Probabilities Breakdown")
+            st.bar_chart(probability_df.set_index("Category")["Probability"])
 
     except Exception as e:
-        st.error(f"Prediction failed: {e}")
+        st.error(f"Prediction fail ho gayi: {e}")
 
-
-    # Try loading csv if available in repo
-    csv_path = Path(__file__).parent / "starbucks.csv"
-    if csv_path.exists():
-        try:
-            df_eda = pd.read_csv(csv_path)
-            st.subheader("Top Highest Calorie Drinks Sample")
-            if "Calories" in df_eda.columns and "Beverage" in df_eda.columns:
-                st.dataframe(df_eda.nlargest(5, "Calories")[["Beverage", "Calories"]], use_container_width=True)
-        except Exception:
-            pass
-    else:
-        st.info("Tip: You can upload your dataset CSV file to GitHub as `starbucks.csv` to display raw data insights here.")
-
-
-# ==========================================
-# FOOTER
-# ==========================================
 st.divider()
-st.caption("✨ Built with Streamlit & Machine Learning | From Beans to Bytes")
+st.caption("✨ Built with Streamlit | Sliders & Manual Mode Integrated")
