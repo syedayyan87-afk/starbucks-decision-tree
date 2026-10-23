@@ -178,13 +178,6 @@ if submitted:
         st.error(f"Prediction failed: {e}")
 
 
-# ==========================================
-# EDA / DATA INSIGHTS SECTION (Optional)
-# ==========================================
-st.divider()
-with st.expander("🔍 View Project Dataset EDA Insights"):
-    st.write("This application uses a Decision Tree model trained on Starbucks beverage data to classify and predict drink types based on nutritional features.")
-    
     # Try loading csv if available in repo
     csv_path = Path(__file__).parent / "starbucks.csv"
     if csv_path.exists():
