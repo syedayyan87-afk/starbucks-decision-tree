@@ -1,3 +1,67 @@
+"""From Beans to Bytes — evidence-based Starbucks nutrition explorer + ML demo.
+
+Deploy alongside starbucks.csv and the EXISTING trained Decision Tree .pkl.
+The existing model predicts beverage CATEGORY, not nutrition values.
+"""
+from pathlib import Path
+import re
+import pandas as pd
+import streamlit as st
+
+ROOT = Path(__file__).resolve().parent
+CSV_FILE = ROOT / "starbucks.csv"
+MODEL_FILES = [ROOT / "starbucks_decision_tree.pkl", ROOT / "starbucks_decision_tree (1).pkl"]
+
+st.set_page_config(page_title="From Beans to Bytes | Starbucks", page_icon="☕", layout="wide")
+st.markdown("""<style>
+.block-container {max-width:1100px; padding-top:2rem}
+[data-testid="stMetric"] {border:1px solid rgba(140,140,140,.25); border-radius:12px; padding:12px}
+</style>""", unsafe_allow_html=True)
+st.title("☕ From Beans to Bytes")
+st.caption("Starbucks beverage nutrition explorer + original Decision Tree classification demo")
+
+@st.cache_data
+def load_data(path):
+    raw = pd.read_csv(path)
+    # Keep the original headings out of the training model; these are display-only normalized copies.
+    raw.columns = raw.columns.str.strip()
+    essential = ["Beverage_category", "Beverage", "Beverage_prep", "Calories", "Sugars (g)"]
+    absent = [col for col in essential if col not in raw.columns]
+    if absent:
+        raise ValueError("Missing columns: " + ", ".join(absent))
+    raw["Calories"] = pd.to_numeric(raw["Calories"], errors="coerce")
+    raw["Sugars (g)"] = pd.to_numeric(raw["Sugars (g)"], errors="coerce")
+    raw["_row"] = range(2, len(raw) + 2)  # Actual CSV line number (including header)
+    return raw
+
+if not CSV_FILE.is_file():
+    st.error("starbucks.csv was not found. Put it next to this Python file in your GitHub repository.")
+    st.stop()
+try:
+    df = load_data(CSV_FILE)
+except Exception as exc:
+    st.error(f"Unable to read dataset: {exc}")
+    st.stop()
+
+st.info("Nutrition figures are from the supplied dataset, **not predictions** or verified current Starbucks menu values. Some rows do not identify a distinct drink size.")
+summary1, summary2, summary3 = st.columns(3)
+summary1.metric("Dataset records", f"{len(df):,}")
+summary2.metric("Unique drink names", df["Beverage"].nunique())
+summary3.metric("Drink categories", df["Beverage_category"].nunique())
+
+explore_tab, discover_tab, ml_tab = st.tabs(["☕ Explore nutrition", "🔎 Find a drink", "🌳 Decision Tree ML demo"])
+
+with explore_tab:
+    st.subheader("Explore a Starbucks beverage")
+    drink = st.selectbox("Choose beverage", sorted(df["Beverage"].dropna().unique()), key="explore_drink")
+    options = df[df["Beverage"] == drink]
+    prep = st.selectbox("Choose preparation", sorted(options["Beverage_prep"].dropna().unique()), key="explore_prep")
+    matches = options[options["Beverage_prep"] == prep].copy()
+    st.write("**Category:** " + ", ".join(sorted(matches["Beverage_category"].dropna().unique())))
+    fields = [c for c in ["Calories", "Sugars (g)", "Total Fat (g)", "Protein (g)", "Caffeine (mg)"] if c in matches.columns]
+    values = matches[fields].apply(pd.to_numeric, errors="coerce")
+    if len(matches) == 1:
+        r = values.iloc[0]
         a, b, c = st.columns(3)
         a.metric("Calories", f"{r['Calories']:g} kcal" if pd.notna(r['Calories']) else "Unknown")
         b.metric("Sugar", f"{r['Sugars (g)']:g} g" if pd.notna(r['Sugars (g)']) else "Unknown")
