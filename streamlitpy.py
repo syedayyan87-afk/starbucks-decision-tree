@@ -94,3 +94,75 @@ with discover_tab:
     st.download_button("Download filtered records", subset[columns].to_csv(index=False).encode("utf-8"), file_name="starbucks_filtered.csv", mime="text/csv")
 
 with ml_tab:
+st.subheader("Original Decision Tree: predict beverage category")
+    st.caption("This is the original classification task. It predicts category from recorded drink and nutrition features; it does NOT predict calories or sugar.")
+    st.warning("Notebook reported **44.90% held-out accuracy (22 / 49)**. Predictions are for educational demonstration, not reliable beverage identification. A probability score is not a calibrated accuracy guarantee.")
+    model_path = next((p for p in MODEL_FILES if p.is_file()), None)
+    if model_path is None:
+        st.warning("No .pkl file present. Add starbucks_decision_tree.pkl beside this script to enable the ML demo. Nutrition explorer still works.")
+    else:
+        @st.cache_resource
+        def load_model(path):
+            # Only load a pickle created by you / a trusted source. Never allow arbitrary user uploads.
+            import joblib
+            return joblib.load(path)
+        try:
+            model = load_model(str(model_path))
+            expected_cols = list(model.named_steps["preprocessor"].feature_names_in_)
+            # CSV column stripping above is for display; normalize ML input names back to training names.
+            # Original training notebook stripped headings at the data-cleaning stage.
+            demo_drink = st.selectbox("Choose a recorded beverage", sorted(df["Beverage"].unique()), key="demo_drink")
+            candidate_rows = df[df["Beverage"] == demo_drink].copy()
+            candidate_rows["_label"] = candidate_rows.apply(
+                lambda r: f"CSV row {int(r['_row'])} · {r['Beverage_prep']} · {r['Calories']:g} kcal · {r['Sugars (g)']:g} g sugar", axis=1
+            )
+            chosen_label = st.selectbox("Choose an individual dataset record", candidate_rows["_label"].tolist())
+            selected = candidate_rows[candidate_rows["_label"] == chosen_label].iloc[[0]]
+            if st.button("🌳 Predict category using Decision Tree", type="primary"):
+                # Reconstruct the notebook's preprocessing for the selected raw CSV row.
+                # The training model expects lowercase underscore-separated column names.
+                features = selected.drop(columns=["_row", "_label"], errors="ignore").copy()
+                features.columns = [
+                    re.sub(r"[^a-z0-9]+", "_", str(c).strip().lower()).strip("_")
+                    for c in features.columns
+                ]
+                # The notebook also stripped strings and converted numeric-looking columns.
+                # Use numeric vs categorical feature lists from the fitted preprocessor.
+                pre = model.named_steps["preprocessor"]
+                numeric_cols = []
+                categorical_cols = []
+                for name, transformer, cols in pre.transformers_:
+                    if name == "numeric":
+                        numeric_cols = list(cols)
+                    elif name == "categorical":
+                        categorical_cols = list(cols)
+                missing = [col for col in expected_cols if col not in features.columns]
+                if missing:
+                    st.error("Required model columns absent after normalization: " + ", ".join(missing))
+                else:
+                    features = features.reindex(columns=expected_cols)
+                    for col in numeric_cols:
+                        features[col] = pd.to_numeric(
+                            features[col].astype("string")
+                            .str.replace(",", "", regex=False)
+                            .str.replace(r"(?<=\d)\s*(mg|mcg|g|ml|oz)$", "", regex=True, case=False)
+                            .str.replace("%", "", regex=False).str.strip(),
+                            errors="coerce"
+                        )
+                    for col in categorical_cols:
+                        features[col] = features[col].map(
+                            lambda x: x.strip() if isinstance(x, str) else x
+                        )
+                    for bool_col in features.select_dtypes(include=["bool"]).columns:
+                        features[bool_col] = features[bool_col].astype(str)
+                    result = str(model.predict(features)[0])
+                    actual = str(selected.iloc[0]["Beverage_category"])
+                    st.success(f"Model-predicted category: **{result}**")
+                    st.write(f"Original dataset category: **{actual}**")
+                    st.write("Comparison: " + ("Matches the dataset label" if result == actual else "Does not match the dataset label"))
+                    st.caption("This selected dataset row may have been in model training data. This demonstration is not a separate test-set evaluation.")
+        except Exception as exc:
+            st.error(f"ML demo unavailable: {exc}")
+
+st.divider()
+st.caption("Dataset: user-provided Starbucks CSV (242 historical records). Training notebook and existing .pkl model are unchanged.")
