@@ -1,159 +1,106 @@
-from pathlib import Path
-import joblib
-import pandas as pd
-import streamlit as st
+    raw["Sugars (g)"] = pd.to_numeric(raw["Sugars (g)"], errors="coerce")
+    raw["_row"] = range(2, len(raw) + 2)  # Actual CSV line number (including header)
+    return raw
 
-# ==========================================
-# PAGE CONFIGURATION & STYLING
-# ==========================================
-st.set_page_config(
-    page_title="Starbucks Beverage Customizer",
-    page_icon="☕",
-    layout="centered"
-)
-
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
-    .main-title {
-        background: linear-gradient(45deg, #00704A, #10b981);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 38px;
-        font-weight: 800;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .stButton > button {
-        background: linear-gradient(135deg, #00704A 0%, #10b981 100%);
-        color: white;
-        border-radius: 10px;
-        font-weight: bold;
-        font-size: 16px;
-        width: 100%;
-        padding: 0.6rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-title">☕ Starbucks Customizer & Predictor</div>', unsafe_allow_html=True)
-st.divider()
-
-# ==========================================
-# LOAD MODEL
-# ==========================================
-MODEL_PATH = Path(__file__).parent / "starbucks_decision_tree.pkl"
-
-@st.cache_resource
-def load_model(path):
-    return joblib.load(path)
-
-if not MODEL_PATH.exists():
-    st.error("Model file (.pkl) nahi mili GitHub repository mein!")
+if not CSV_FILE.is_file():
+    st.error("starbucks.csv was not found. Put it next to this Python file in your GitHub repository.")
     st.stop()
-
 try:
-    model = load_model(str(MODEL_PATH))
-    preprocessor = model.named_steps["preprocessor"]
-    classifier = model.named_steps["classifier"]
-    expected_columns = list(preprocessor.feature_names_in_)
-except Exception as e:
-    st.error(f"Model load hone mein masla hua: {e}")
+    df = load_data(CSV_FILE)
+except Exception as exc:
+    st.error(f"Unable to read dataset: {exc}")
     st.stop()
 
-# ==========================================
-# IDENTIFY FEATURE TYPES
-# ==========================================
-numeric_features = []
-categorical_features = []
-categorical_options = {}
+st.info("Nutrition figures are from the supplied dataset, **not predictions** or verified current Starbucks menu values. Some rows do not identify a distinct drink size.")
+summary1, summary2, summary3 = st.columns(3)
+summary1.metric("Dataset records", f"{len(df):,}")
+summary2.metric("Unique drink names", df["Beverage"].nunique())
+summary3.metric("Drink categories", df["Beverage_category"].nunique())
 
-for name, transformer, columns in preprocessor.transformers_:
-    if name == "numeric":
-        numeric_features = list(columns)
-    elif name == "categorical":
-        categorical_features = list(columns)
-        encoder = transformer.named_steps.get("encoder")
-        if encoder is not None and hasattr(encoder, "categories_"):
-            for col, options in zip(columns, encoder.categories_):
-                categorical_options[col] = [val for val in options if pd.notna(val)]
+explore_tab, discover_tab, ml_tab = st.tabs(["☕ Explore nutrition", "🔎 Find a drink", "🌳 Decision Tree ML demo"])
 
-# ==========================================
-# USER INPUT INTERFACE
-# ==========================================
-input_values = {}
+with explore_tab:
+    st.subheader("Select a beverage")
+    drink = st.selectbox("Beverage", sorted(df["Beverage"].dropna().unique()), key="explore_drink")
+    options = df[df["Beverage"] == drink]
+    prep = st.selectbox("Preparation (as recorded in CSV)", sorted(options["Beverage_prep"].dropna().unique()), key="explore_prep")
+    matches = options[options["Beverage_prep"] == prep].copy()
+    st.write(f"**Category/categories in dataset:** {', '.join(sorted(matches['Beverage_category'].unique()))}")
+    if len(matches) > 1:
+        st.warning(f"{len(matches)} different dataset rows match this beverage and preparation. The CSV does not distinguish their sizes or variants sufficiently; no single exact nutrition value can be inferred.")
+        st.write("**Nutrition range across matching records:**")
+        fields = [c for c in ["Calories", "Sugars (g)", "Total Fat (g)", "Protein (g)", "Caffeine (mg)"] if c in matches.columns]
+        summary = matches[fields].apply(pd.to_numeric, errors="coerce").agg(["min", "max"]).T
+        summary.columns = ["Minimum", "Maximum"]
+        st.dataframe(summary, use_container_width=True)
+        st.write("**Individual matching dataset records:**")
+        shown = ["_row", "Beverage_category", "Beverage", "Beverage_prep"] + fields
+        st.dataframe(matches[shown].rename(columns={"_row": "CSV row"}), hide_index=True, use_container_width=True)
+    else:
+        r = matches.iloc[0]
+        a,b,c = st.columns(3)
+        a.metric("Calories", f"{r['Calories']:g} kcal" if pd.notna(r['Calories']) else "Unknown")
+        b.metric("Sugar", f"{r['Sugars (g)']:g} g" if pd.notna(r['Sugars (g)']) else "Unknown")
+        fat = pd.to_numeric(r.get("Total Fat (g)"), errors="coerce")
+        c.metric("Total fat", f"{fat:g} g" if pd.notna(fat) else "Unknown")
+        st.dataframe(matches.drop(columns=["_row"]), hide_index=True, use_container_width=True)
 
-if categorical_features:
-    st.markdown("### 🏷️ Beverage Category:")
-    for col in categorical_features:
-        label = col.replace("_", " ").title()
-        options = categorical_options.get(col, [])
-        if options:
-            input_values[col] = st.selectbox(label, options=options, key=f"cat_{col}")
+with discover_tab:
+    st.subheader("Find lower-calorie or lower-sugar records")
+    st.caption("These are straightforward dataset filters, not AI recommendations or medical advice.")
+    category_opts = ["All categories"] + sorted(df["Beverage_category"].dropna().unique())
+    category = st.selectbox("Category filter", category_opts)
+    max_cal = st.slider("Maximum calories (kcal)", 0, max(100, int(df["Calories"].max())), 200, step=10)
+    max_sugar = st.slider("Maximum sugar (g)", 0, max(20, int(df["Sugars (g)"].max())), 25, step=5)
+    subset = df[(df["Calories"] <= max_cal) & (df["Sugars (g)"] <= max_sugar)].copy()
+    if category != "All categories":
+        subset = subset[subset["Beverage_category"] == category]
+    subset = subset.sort_values(["Calories", "Sugars (g)", "Beverage"])
+    st.write(f"**{len(subset)} dataset records match your filters.**")
+    columns = ["Beverage_category", "Beverage", "Beverage_prep", "Calories", "Sugars (g)"]
+    st.dataframe(subset[columns], hide_index=True, use_container_width=True)
+    st.download_button("Download filtered records", subset[columns].to_csv(index=False).encode("utf-8"), file_name="starbucks_filtered.csv", mime="text/csv")
 
-if numeric_features:
-    st.markdown("### ⚙️ Select Input Method for Nutrition:")
-    input_mode = st.radio(
-        "Choose Mode:",
-        ["Sliders 🎛️", "Manual Typing ⌨️"],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
-    
-    st.markdown("---")
-
-    for col in numeric_features:
-        label = col.replace("_", " ").title()
-        
-        if input_mode == "Sliders 🎛️":
-            input_values[col] = st.slider(
-                f"{label}:",
-                min_value=0.0,
-                max_value=500.0,
-                value=20.0,
-                step=1.0,
-                key=f"slider_{col}"
+with ml_tab:
+    st.subheader("Original Decision Tree: predict beverage category")
+    st.caption("This is the original classification task. It predicts category from recorded drink and nutrition features; it does NOT predict calories or sugar.")
+    st.warning("Notebook reported **44.90% held-out accuracy (22 / 49)**. Predictions are for educational demonstration, not reliable beverage identification. A probability score is not a calibrated accuracy guarantee.")
+    model_path = next((p for p in MODEL_FILES if p.is_file()), None)
+    if model_path is None:
+        st.warning("No .pkl file present. Add starbucks_decision_tree.pkl beside this script to enable the ML demo. Nutrition explorer still works.")
+    else:
+        @st.cache_resource
+        def load_model(path):
+            # Only load a pickle created by you / a trusted source. Never allow arbitrary user uploads.
+            import joblib
+            return joblib.load(path)
+        try:
+            model = load_model(str(model_path))
+            expected_cols = list(model.named_steps["preprocessor"].feature_names_in_)
+            # CSV column stripping above is for display; normalize ML input names back to training names.
+            # Original training notebook stripped headings at the data-cleaning stage.
+            demo_drink = st.selectbox("Choose a recorded beverage", sorted(df["Beverage"].unique()), key="demo_drink")
+            candidate_rows = df[df["Beverage"] == demo_drink].copy()
+            candidate_rows["_label"] = candidate_rows.apply(
+                lambda r: f"CSV row {int(r['_row'])} · {r['Beverage_prep']} · {r['Calories']:g} kcal · {r['Sugars (g)']:g} g sugar", axis=1
             )
-        else:
-            input_values[col] = st.number_input(
-                f"{label}:",
-                min_value=0.0,
-                value=20.0,
-                step=1.0,
-                key=f"num_{col}"
-            )
+            chosen_label = st.selectbox("Choose an individual dataset record", candidate_rows["_label"].tolist())
+            selected = candidate_rows[candidate_rows["_label"] == chosen_label].iloc[[0]]
+            if st.button("🌳 Predict category using Decision Tree", type="primary"):
+                # Training column names are in the PKL; the CSV was normalized during notebook EDA.
+                missing = [col for col in expected_cols if col not in selected.columns]
+                if missing:
+                    st.error("The model requires unavailable dataset features: " + ", ".join(missing))
+                else:
+                    features = selected[expected_cols].copy()
+                    result = str(model.predict(features)[0])
+                    actual = str(selected.iloc[0]["Beverage_category"])
+                    st.success(f"Model-predicted category: **{result}**")
+                    st.write(f"Original dataset category: **{actual}**")
+                    st.write("Comparison: " + ("Matches the dataset label" if result == actual else "Does not match the dataset label"))
+                    st.caption("This selected dataset row may have been in model training data. This demonstration is not a separate test-set evaluation.")
+        except Exception as exc:
+            st.error(f"ML demo unavailable: {exc}")
 
 st.divider()
-submitted = st.button("🚀 Predict Beverage Details")
-
-# ==========================================
-# PREDICTION LOGIC
-# ==========================================
-if submitted:
-    input_df = pd.DataFrame(
-        [[input_values[col] for col in expected_columns]],
-        columns=expected_columns
-    )
-
-    try:
-        prediction = model.predict(input_df)[0]
-        
-        st.success(f"🎉 **Prediction Result:** {prediction}")
-
-        if hasattr(model, "predict_proba"):
-            probabilities = model.predict_proba(input_df)[0]
-            st.metric(label="Model Confidence", value=f"{probabilities.max() * 100:.1f}%")
-
-            probability_df = pd.DataFrame({
-                "Category": classifier.classes_,
-                "Probability": probabilities
-            }).sort_values("Probability", ascending=False)
-
-            st.markdown("### 📈 Probabilities Breakdown")
-            st.bar_chart(probability_df.set_index("Category")["Probability"])
-
-    except Exception as e:
-        st.error(f"Prediction fail ho gayi: {e}")
+st.caption("Dataset: user-provided Starbucks CSV (242 historical records). Training notebook and existing .pkl model are unchanged.")
