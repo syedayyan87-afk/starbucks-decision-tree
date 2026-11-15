@@ -4,6 +4,7 @@ Deploy alongside starbucks.csv and the EXISTING trained Decision Tree .pkl.
 The existing model predicts beverage CATEGORY, not nutrition values.
 """
 from pathlib import Path
+import re
 import pandas as pd
 import streamlit as st
 
@@ -93,47 +94,3 @@ with discover_tab:
     st.download_button("Download filtered records", subset[columns].to_csv(index=False).encode("utf-8"), file_name="starbucks_filtered.csv", mime="text/csv")
 
 with ml_tab:
-    st.subheader("Original Decision Tree: predict beverage category")
-    st.caption("This is the original classification task. It predicts category from recorded drink and nutrition features; it does NOT predict calories or sugar.")
-    st.warning("Notebook reported **44.90% held-out accuracy (22 / 49)**. Predictions are for educational demonstration, not reliable beverage identification. A probability score is not a calibrated accuracy guarantee.")
-    model_path = next((p for p in MODEL_FILES if p.is_file()), None)
-    if model_path is None:
-        st.warning("No .pkl file present. Add starbucks_decision_tree.pkl beside this script to enable the ML demo. Nutrition explorer still works.")
-    else:
-        @st.cache_resource
-        def load_model(path):
-            # Only load a pickle created by you / a trusted source. Never allow arbitrary user uploads.
-            import joblib
-            return joblib.load(path)
-        try:
-            model = load_model(str(model_path))
-            expected_cols = list(model.named_steps["preprocessor"].feature_names_in_)
-            # CSV column stripping above is for display; normalize ML input names back to training names.
-            # Original training notebook stripped headings at the data-cleaning stage.
-            demo_drink = st.selectbox("Choose a recorded beverage", sorted(df["Beverage"].unique()), key="demo_drink")
-            candidate_rows = df[df["Beverage"] == demo_drink].copy()
-            candidate_rows["_label"] = candidate_rows.apply(
-                lambda r: f"CSV row {int(r['_row'])} · {r['Beverage_prep']} · {r['Calories']:g} kcal · {r['Sugars (g)']:g} g sugar", axis=1
-            )
-            chosen_label = st.selectbox("Choose an individual dataset record", candidate_rows["_label"].tolist())
-            selected = candidate_rows[candidate_rows["_label"] == chosen_label].iloc[[0]]
-            if st.button("🌳 Predict category using Decision Tree", type="primary"):
-                # Training column names are in the PKL; the CSV was normalized during notebook EDA.
-                missing = [col for col in expected_cols if col not in selected.columns]
-                if missing:
-                    st.error("The model requires unavailable dataset features: " + ", ".join(missing))
-                else:
-                    features = selected[expected_cols].copy()
-                    for bool_col in features.select_dtypes(include=["bool"]).columns:
-                        features[bool_col] = features[bool_col].astype(str)
-                    result = str(model.predict(features)[0])
-                    actual = str(selected.iloc[0]["Beverage_category"])
-                    st.success(f"Model-predicted category: **{result}**")
-                    st.write(f"Original dataset category: **{actual}**")
-                    st.write("Comparison: " + ("Matches the dataset label" if result == actual else "Does not match the dataset label"))
-                    st.caption("This selected dataset row may have been in model training data. This demonstration is not a separate test-set evaluation.")
-        except Exception as exc:
-            st.error(f"ML demo unavailable: {exc}")
-
-st.divider()
-st.caption("Dataset: user-provided Starbucks CSV (242 historical records). Training notebook and existing .pkl model are unchanged.")
